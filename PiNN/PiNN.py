@@ -1,6 +1,5 @@
 import numpy as np
-#import minpy.numpy as np
-
+import matplotlib.pyplot as plt
 
 #
 #
@@ -8,7 +7,7 @@ import numpy as np
 #
 #
 
-step_size = 0.001
+step_size = 0.005
 #inputs = 4
 # data = [
 #     (np.matrix('0;0;0;0'), 0),
@@ -77,7 +76,7 @@ with open('agaricus-lepiota.data') as f:
         split = line.strip().split(',')
 
         # [1, 0] = edible, [0, 1] = poisonous
-        pred = np.matrix('1;0') if split[0] == 'e' else np.matrix('0;1')
+        pred = np.array([1, 0]) if split[0] == 'e' else np.array([0, 1])
 
         m = np.zeros((inputs, 1))
         mcur = 0
@@ -103,7 +102,6 @@ print(str(len(data)) + ' data rows loaded')
 #
 
 def buildNetwork():
-
     # Generates a default neural network
 
     # Network layout:
@@ -115,12 +113,12 @@ def buildNetwork():
     # 2 hidden layers
     # array[0] = First hidden layer, array[2] = Output layer
 
-    hiddenNeurons = 200
-    return [np.random.rand(hiddenNeurons, inputs), np.random.rand(hiddenNeurons, hiddenNeurons), np.random.rand(2, hiddenNeurons)]
+    outputs = 2
+    init_max = 0.02
+    return [np.random.rand(70, inputs)*init_max-(init_max/2), np.random.rand(outputs, 70)*init_max-(init_max/2)]
 
 
 def run(net, input):
-
     # Runs the neural network on the given input
 
     out = np.array(input)
@@ -143,49 +141,53 @@ def run(net, input):
 
 # z is the weighted input matrix for each layer
 def trainOnce(net, z, direction):
-
     # Train the network using backpropagation
 
     dx = np.array(direction)
 
     # Reverse iteration over layers
     for l in range(len(z)-1, 0, -1):
-        layer = z[l]
+        z_layer = z[l]
 
-        # Multiply neurons with passed down value (cut off propagation if necessary)
-        for neuron in range(0, layer.shape[0]):
-            layer[neuron] *= dx[neuron]
+        # Reduce z_layer to either 1 (has been activated) or 0 (1/x)
+        z_layer[z_layer != 0] = 1
 
-        # Apply new dx to weights in current layer (step_size is added to each weight accordingly)
-        net[l] = np.add(net[l], vlearn(layer))
+        # Chain rule (cut off propagation if necessary)
+        for neuron in range(0, z_layer.shape[0]):
+            z_layer[neuron] *= dx[neuron]
+
+        # Apply new dx to weights in current layer (step_size is multiplied to each weight accordingly)
+        net[l] = np.add(net[l], np.multiply(z_layer, step_size))
 
         # Calculate new dx for next step
-        dx = np.transpose(np.sum(layer, axis=0))
+        dx = np.transpose(np.sum(z_layer, axis=0))
+
+    return net
 
 
-# Backprop helper
-vlearn = np.vectorize(lambda t: (step_size if t > 0 else (-step_size if t < 0 else 0)) * t, otypes=[np.float])
+# Loss helpers
+def softmax(arr):
+    arr_exp = np.exp(arr)
+    exp_sum = np.sum(arr_exp)
+    return np.divide(arr_exp, exp_sum)
 
+def crossEntropy(corr, pred):
+    return -np.sum(np.multiply(corr, np.log(pred)))
 
 def loss(corr, pred):
-
-    #  1   0
-    # 0.8 0.2
-    # 0.2 -0.2
-
-    return np.subtract(corr, np.divide(pred, np.max(pred)))
+    # Cross-Entropy loss
+    # Also calculates the gradient of the loss with respect to the input parameters
+    p_max = softmax(pred)
+    return (crossEntropy(corr, p_max), -np.subtract(p_max, corr))
 
 
-def countCorrect(net):
-
+def check(net):
     # Simply check how much of the test data can be classified correctly
-
     wrong = 0
-
     for set in data:
         corr = set[1]
         pred, _ = run(net, set[0])
-        if (corr == 0 and pred > 1) or (corr == 1 and pred < 1):
+        if np.argmax(corr) != np.argmax(pred):
             wrong += 1
 
     return len(data) - wrong
@@ -197,25 +199,35 @@ print(' Beginning training... ')
 print('-----------------------')
 
 net = buildNetwork()
+losses = []
 
-for i in range(0, len(data)):
-
+for i in range(0, int(len(data)*100)):
     # Sample a data set
     set = data[i % len(data)]
+
     # Run the network
     out, z = run(net, set[0])
 
-    # Select direction
-    dir = loss(set[1], out)
+    # Calculate loss
+    l, grad = loss(set[1], out)
+    losses.append(l)
+    
+    # DEBUG print
+    # print(str(set[1]) + " -> " + str(out) + " -> " + str(grad))
 
-    # Loss handling
-    if i % 100 == 0:
-        l = np.sum(np.absolute(dir))
-        print('Loss at iteration ' + str(i) + ': ' + str(l))
+    # Output for measly humans
+    print('Loss at iteration ' + str(i) + ': ' + str(l))
 
     # Perform training
-    trainOnce(net, z, dir)
+    net = trainOnce(net, z, grad)
 
 print('Training done, calculating statistics...')
-print('Correct: ' + str(countCorrect(net)) + ' of ' + str(len(data)))
+print('Correct: ' + str(check(net)) + ' of ' + str(len(data)))
 print()
+
+# Plot loss
+plt.plot(losses)
+plt.ylabel('Cross-Entropy Loss')
+plt.xlabel('Iteration')
+plt.title('Loss function')
+plt.show()
