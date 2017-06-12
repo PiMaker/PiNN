@@ -1,22 +1,106 @@
 import numpy as np
+#import minpy.numpy as np
 
 
-step_size = 0.01
-inputs = 4
-data = [
-    (np.matrix('0;0;0;0'), 0),
-    (np.matrix('0;0;0;1'), 0),
-    (np.matrix('0;0;1;0'), 0),
-    (np.matrix('0;1;0;0'), 0),
-    (np.matrix('1;0;0;0'), 0),
-    (np.matrix('1;1;0;0'), 1),
-    (np.matrix('0;1;1;0'), 1),
-    (np.matrix('0;0;1;1'), 1),
-    (np.matrix('1;0;0;1'), 1),
-    (np.matrix('0;1;0;1'), 1),
-    (np.matrix('1;0;1;0'), 1),
+#
+#
+#   PARSE INPUT
+#
+#
+
+step_size = 0.001
+#inputs = 4
+# data = [
+#     (np.matrix('0;0;0;0'), 0),
+#     (np.matrix('0;0;0;1'), 0),
+#     (np.matrix('0;0;1;0'), 0),
+#     (np.matrix('0;1;0;0'), 0),
+#     (np.matrix('1;0;0;0'), 0),
+#     (np.matrix('1;1;0;0'), 1),
+#     (np.matrix('0;1;1;0'), 1),
+#     (np.matrix('0;0;1;1'), 1),
+#     (np.matrix('1;0;0;1'), 1),
+#     (np.matrix('0;1;0;1'), 1),
+#     (np.matrix('1;0;1;0'), 1),
+# ]
+
+print('-----------------')
+print(' Loading data... ')
+print('-----------------')
+
+data_table = [
+    ['b', 'c', 'x', 'f', 'k', 's'],
+    ['f', 'g', 'y', 's'],
+    ['n', 'b', 'c', 'g', 'r', 'p', 'u', 'e', 'w', 'y'],
+    ['t', 'f'],
+    ['a', 'l', 'c', 'y', 'f', 'm', 'n', 'p', 's'],
+    ['a', 'd', 'f', 'n'],
+    ['c', 'w', 'd'],
+    ['b', 'n'],
+    ['k', 'n', 'b', 'h', 'g', 'r', 'o', 'p', 'u', 'e', 'w', 'y'],
+    ['e', 't'],
+    ['b', 'c', 'u', 'e', 'z', 'r', '?'],
+    ['f', 'y', 'k', 's'],
+    ['f', 'y', 'k', 's'],
+    ['n', 'b', 'c', 'g', 'o', 'p', 'e', 'w', 'y'],
+    ['n', 'b', 'c', 'g', 'o', 'p', 'e', 'w', 'y'],
+    ['p', 'u'],
+    ['n', 'o', 'w', 'y'],
+    ['n', 'o', 't'],
+    ['c', 'e', 'f', 'l', 'n', 'p', 's', 'z'],
+    ['k', 'n', 'b', 'h', 'r', 'o', 'u', 'w', 'y'],
+    ['a', 'c', 'n', 's', 'v', 'y'],
+    ['g', 'l', 'm', 'p', 'u', 'w', 'd']
 ]
 
+
+# Thanks stack overflow
+def flatten(seq,container=None):
+    if container is None:
+        container = []
+    for s in seq:
+        if hasattr(s,'__iter__') and type(s) != type(''):
+            flatten(s,container)
+        else:
+            container.append(s)
+    return container
+
+
+data = []
+inputs = len(flatten(data_table))
+
+with open('agaricus-lepiota.data') as f:
+    for line in f:
+        if line.strip() == '':
+            continue
+
+        split = line.strip().split(',')
+
+        # [1, 0] = edible, [0, 1] = poisonous
+        pred = np.matrix('1;0') if split[0] == 'e' else np.matrix('0;1')
+
+        m = np.zeros((inputs, 1))
+        mcur = 0
+
+        for c in range(0, len(data_table)):
+            try:
+                i = data_table[c].index(split[c + 1])
+                m[mcur + i] = 1
+            except ValueError:
+                pass
+
+            mcur += len(data_table[c])
+
+        data.append((m, pred))
+
+print(str(len(data)) + ' data rows loaded')
+
+
+#
+#
+#   NEURAL NETWORK
+#
+#
 
 def buildNetwork():
 
@@ -28,10 +112,11 @@ def buildNetwork():
     # * Every column is a connection to a specific node from the previous layer
     # => shape: (neurons in previous layer)x(neurons in layer)
 
-    # For now: Hardcoded 4 inputs, 2 hidden layer (8 neurons each), 1 output
+    # 2 hidden layers
     # array[0] = First hidden layer, array[2] = Output layer
 
-    return [np.random.rand(20, inputs), np.random.rand(20, 20), np.random.rand(1, 20)]
+    hiddenNeurons = 200
+    return [np.random.rand(hiddenNeurons, inputs), np.random.rand(hiddenNeurons, hiddenNeurons), np.random.rand(2, hiddenNeurons)]
 
 
 def run(net, input):
@@ -44,62 +129,51 @@ def run(net, input):
 
     for layer in net:
         # Dot product with intermediate step
-        temp = np.multiply(layer, out.transpose())
+        temp = np.multiply(layer, np.transpose(out))
         weighted.append(temp)
-        out = temp.sum(axis=1)
+        out = np.sum(temp, axis=1)
 
         # Map ReLU over every element
-        out = vfunc(out)
+        out = np.maximum(0, out)
 
-    # What is left is the (1,1) output matrix
+    # What is left is the output matrix
     # We also return the weighted input matrix per layer for use in backprop
-    return (out.item(), weighted)
+    return (out, weighted)
 
-
-# ReLU Helper
-# (Vectorize function for easy application to arrays)
-vfunc = np.vectorize(lambda t: max(0, t), otypes=[np.float])
-    
 
 # z is the weighted input matrix for each layer
 def trainOnce(net, z, direction):
-    
+
     # Train the network using backpropagation
 
-    dx = np.array([direction])
+    dx = np.array(direction)
 
     # Reverse iteration over layers
     for l in range(len(z)-1, 0, -1):
         layer = z[l]
 
         # Multiply neurons with passed down value (cut off propagation if necessary)
-        for neuron in range(0, len(layer)):
+        for neuron in range(0, layer.shape[0]):
             layer[neuron] *= dx[neuron]
 
-        # Apply new dx to weights in current layer
+        # Apply new dx to weights in current layer (step_size is added to each weight accordingly)
         net[l] = np.add(net[l], vlearn(layer))
 
         # Calculate new dx for next step
-        dx = vnorm(np.transpose(np.sum(layer, axis=0)))
+        dx = np.transpose(np.sum(layer, axis=0))
 
 
-# Backprop Helpers
-vnorm = np.vectorize(lambda t: -1 if t < 0 else (1 if t > 0 else 0), otypes=[np.float])
-vlearn = np.vectorize(lambda t: step_size if t > 0 else (-step_size if t < 0 else 0), otypes=[np.float])
+# Backprop helper
+vlearn = np.vectorize(lambda t: (step_size if t > 0 else (-step_size if t < 0 else 0)) * t, otypes=[np.float])
 
 
-def loss(net):
+def loss(corr, pred):
 
-    # Calculate loss
+    #  1   0
+    # 0.8 0.2
+    # 0.2 -0.2
 
-    total = 0.0
-    for set in data:
-        corr = set[1]
-        pred, _ = run(net, set[0])
-        temp = corr-pred
-        total += temp*temp
-        
-    return total
+    return np.subtract(corr, np.divide(pred, np.max(pred)))
 
 
 def countCorrect(net):
@@ -111,29 +185,20 @@ def countCorrect(net):
     for set in data:
         corr = set[1]
         pred, _ = run(net, set[0])
-        if (corr < 0.5 and pred > 0.5) or (corr > 0.5 and pred < 0.5):
+        if (corr == 0 and pred > 1) or (corr == 1 and pred < 1):
             wrong += 1
 
     return len(data) - wrong
 
 
-print('Beginning training')
+print()
+print('-----------------------')
+print(' Beginning training... ')
+print('-----------------------')
 
 net = buildNetwork()
 
-for i in range(1000):
-    # Output loss
-    l = loss(net)
-    print('Loss at iteration ' + str(i) + ': ' + str(l))
-
-    # Break if loss small enough
-    if l < 0.8:
-        print('Reached loss delta!')
-        break
-
-    if l < 5 and step_size >= 0.01:
-        print('Decreasing step size')
-        step_size /= 10
+for i in range(0, len(data)):
 
     # Sample a data set
     set = data[i % len(data)]
@@ -141,14 +206,16 @@ for i in range(1000):
     out, z = run(net, set[0])
 
     # Select direction
-    dir = 0
-    if set[1] == 1 and out < 0.5:
-        dir = 1
-    elif set[1] == 0 and out > 0.5:
-        dir = -1
+    dir = loss(set[1], out)
+
+    # Loss handling
+    if i % 100 == 0:
+        l = np.sum(np.absolute(dir))
+        print('Loss at iteration ' + str(i) + ': ' + str(l))
 
     # Perform training
     trainOnce(net, z, dir)
 
-print('Loss (end): ' + str(loss(net)))
+print('Training done, calculating statistics...')
 print('Correct: ' + str(countCorrect(net)) + ' of ' + str(len(data)))
+print()
